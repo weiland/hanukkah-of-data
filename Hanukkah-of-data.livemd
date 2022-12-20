@@ -1,0 +1,80 @@
+# Hanukkah of Data 🕎
+
+```elixir
+Mix.install([:csv])
+
+# there is a comma in citizenstatezip as well
+customers =
+  "./data/noahs-customers.csv"
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> CSV.decode()
+
+# |> Stream.map(&String.trim(&1))
+# |> Stream.map(&String.split(&1, ","))
+# |> Stream.map(fn [customerId, name, address, citizen, statezip, birthdate, phone] ->
+# %{name: name, phone: phone}
+# end)
+# |> Stream.filter(fn
+#   ["Timestamp" | _] -> false
+#   [_, "NaN" | _] -> false
+#   [timestamp | _] ->
+#     IO.puts("filter -> #{timestamp}")
+#     true
+# end)
+```
+
+## Day 1
+
+> Find the private investigator's phone number 👀
+
+```elixir
+convert_to_code = fn letter ->
+  # a = 0, z = 25
+  char = letter - 97
+
+  cond do
+    # abc
+    char <= 2 -> 2
+    # def
+    char <= 5 -> 3
+    char <= 8 -> 4
+    char <= 11 -> 5
+    char <= 14 -> 6
+    char <= 18 -> 7
+    char <= 21 -> 8
+    # xzy
+    char <= 25 -> 9
+    true -> raise "oh no"
+  end
+end
+
+customers
+|> Stream.drop(1)
+|> Stream.map(fn {_ok, [_id, name, _add, _state, _birth, phone]} ->
+  %{name: name, phone: phone}
+end)
+|> Stream.map(fn %{name: name, phone: phone} ->
+  name_num =
+    name
+    |> String.split(" ")
+    |> List.last()
+    |> String.downcase()
+    |> String.graphemes()
+    |> Enum.map(fn s -> s |> String.to_charlist() |> hd end)
+    |> Enum.map(convert_to_code)
+    |> Enum.join("")
+
+  new_phone =
+    phone
+    |> String.replace("-", "")
+
+  %{name_num: name_num, phone: new_phone, orig_phone: phone}
+end)
+|> Stream.filter(fn %{name_num: name_num, phone: phone, orig_phone: _phone} ->
+  String.contains?(name_num, phone)
+end)
+|> Enum.to_list()
+|> List.first()
+|> Map.get(:orig_phone)
+```
