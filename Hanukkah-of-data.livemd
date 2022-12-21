@@ -278,4 +278,25 @@ qualified_customers
 |> Map.get(:phone)
 ```
 
-## Section
+## Night 3
+
+* Year of the Dog = 2030, 2018, 2006, 1994, 1982, 1970
+* Aries: 21. marts - 20. april
+* same neighbourhood: South Ozone Park, NY 11420
+
+```elixir
+customers
+|> Stream.drop(1)
+|> Stream.filter(fn {_ok, order} ->
+  {:ok, date} = Date.from_iso8601(Enum.at(order, 4))
+  # years of dog
+  # Aries
+  # same neighbourhood in NY
+  Enum.member?([1946, 1958, 1970, 1982, 1994], date.year) &&
+    (date.month == 3 || date.month == 4) &&
+    String.contains?(Enum.at(order, 3), "NY 11420")
+end)
+|> Stream.map(fn {_ok, list} -> Enum.at(list, 5) end)
+|> Enum.to_list()
+|> List.first()
+```
