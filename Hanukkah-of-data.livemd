@@ -10,21 +10,18 @@ customers =
   |> File.stream!()
   |> CSV.decode()
 
-# there is a comma in citizenstatezip as well
 orders =
   "./data/noahs-orders.csv"
   |> Path.expand(__DIR__)
   |> File.stream!()
   |> CSV.decode()
 
-# there is a comma in citizenstatezip as well
 items =
   "./data/noahs-orders_items.csv"
   |> Path.expand(__DIR__)
   |> File.stream!()
   |> CSV.decode()
 
-# there is a comma in citizenstatezip as well
 products =
   "./data/noahs-products.csv"
   |> Path.expand(__DIR__)
@@ -275,7 +272,8 @@ customer_id =
 ```elixir
 qualified_customers
 |> Enum.find(fn data -> data.customerId == customer_id end)
-|> Map.get(:phone)
+
+# |> Map.get(:phone)
 ```
 
 ## Night 3
@@ -299,4 +297,84 @@ end)
 |> Stream.map(fn {_ok, list} -> Enum.at(list, 5) end)
 |> Enum.to_list()
 |> List.first()
+```
+
+## Night 4
+
+Looking for *bicycle fixer's phone number*
+
+* female person
+* bike chain repair kit
+* patries -> pastry
+* years ago: so not 2022 and neither 2021 -> 2017 - 2020?
+* 5am (early bird -> fresh pastries)
+
+```elixir
+# products (bagel and coffee) that have been bought
+qualified_products =
+  products
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [sku, desc, _wc]} -> %{desc: String.downcase(desc), sku: sku} end)
+  |> Stream.filter(fn data ->
+    # || String.contains?(data.desc, "cycle") # did not help
+    # || String.contains?(data.desc, "clean")
+    String.contains?(data.desc, "pastry") ||
+      String.contains?(data.desc, "bike") ||
+      String.contains?(data.desc, "chain") ||
+      String.contains?(data.desc, "bagel") ||
+      String.contains?(data.desc, "chain") ||
+      String.contains?(data.desc, "repair") ||
+      String.contains?(data.desc, "croissant") ||
+      String.contains?(data.desc, "cannoli") ||
+      String.contains?(data.desc, "donut")
+  end)
+
+skus =
+  qualified_products
+  # |> Stream.map(fn data -> data.sku end)
+  |> Enum.to_list()
+```
+
+```elixir
+# find the items and their order ids of the qualified product skus
+interesting_order_ids =
+  items
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [orderId, sku, _qty, _up]} -> %{orderId: orderId, sku: sku} end)
+  |> Stream.filter(fn data -> Enum.member?(skus, data.sku) end)
+  |> Stream.map(&Map.get(&1, :orderId))
+  |> Enum.to_list()
+```
+
+```elixir
+# find all orders for the order ids
+interesting_orders =
+  orders
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [orderId, customerId, ordered, _shipped, _items, _total]} ->
+    %{orderId: orderId, customerId: customerId, ordered: ordered}
+  end)
+  |> Stream.filter(fn data -> Enum.member?(interesting_order_ids, data.orderId) end)
+  # |> Stream.filter(fn data -> String.starts_with?(data.ordered, "2017-") end)
+  |> Stream.filter(fn order ->
+    {:ok, date} = NaiveDateTime.from_iso8601(order.ordered)
+
+    date.year != 2022 && date.year != 2021 && date.year != 2020 &&
+      date.hour < 5 && date.hour > 3
+  end)
+  |> Enum.to_list()
+```
+
+```elixir
+cids = interesting_orders |> Enum.map(fn order -> order.customerId end)
+
+customers
+|> Stream.drop(1)
+|> Stream.filter(fn {_ok, customer} ->
+  Enum.member?(cids, Enum.at(customer, 0))
+end)
+# |> Stream.map(fn {_ok, list} -> Enum.at(list, 5) end)
+|> Enum.to_list()
+
+# two entries, used the one from 1981
 ```
