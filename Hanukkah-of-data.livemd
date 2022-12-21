@@ -131,8 +131,10 @@ qualified_customers =
       false
     else
       [first, last] = parts
-      String.starts_with?(first, "J") && String.starts_with?(last, "D")
-      # && String.contains?(data.state, "Manhattan")
+      # && String.contains?(data.state, "Manhattan") # did not work
+      # did not work
+      String.starts_with?(first, "J") && String.starts_with?(last, "D") &&
+        String.contains?(data.state, "NY")
     end
   end)
 
@@ -144,6 +146,8 @@ qualified_customers_id =
 qualified_customers
 |> Enum.to_list()
 ```
+
+Attempt one: customers -> orders -> items
 
 ```elixir
 qualified_orders =
@@ -162,6 +166,9 @@ qualified_orders =
     date = Map.get(data, :ordered)
     date.year == 2017 && Enum.member?(qualified_customers_id, data.customerId)
   end)
+
+qualified_orders
+|> Enum.to_list()
 ```
 
 ```elixir
@@ -185,19 +192,24 @@ qualified_skus =
 ```
 
 ```elixir
-products
-|> Stream.drop(1)
-|> Stream.map(fn {_ok, [sku, desc, _wc]} -> %{desc: String.downcase(desc), sku: sku} end)
-|> Stream.filter(fn data ->
-  Enum.member?(qualified_skus, data.sku)
-  # && String.starts_with?(data.sku, "KIT") # prodcut category?
-  # (String.contains?(data.desc, "coffee") ||
-  # String.contains?(data.desc, "bagel"))
-end)
-|> Enum.to_list()
+qskus =
+  products
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [sku, desc, _wc]} -> %{desc: String.downcase(desc), sku: sku} end)
+  |> Stream.filter(fn data ->
+    # && String.starts_with?(data.sku, "KIT") # prodcut category not the best idea
+    Enum.member?(qualified_skus, data.sku) &&
+      (String.contains?(data.desc, "coffee") ||
+         String.contains?(data.desc, "bagel"))
+  end)
+  |> Stream.map(&Map.get(&1, :sku))
+  |> Enum.to_list()
 ```
 
+Attempt two (starting from the prodcuts):
+
 ```elixir
+# products (bagel and coffee) that have been bought
 qualified_products =
   products
   |> Stream.drop(1)
@@ -209,28 +221,28 @@ qualified_products =
     # || String.contains?(data.desc, "clean")
   end)
 
-# outputs 10 items
-# |> Enum.to_list
+qualified_products
+|> Enum.to_list()
+```
 
-skus =
+```elixir
+qualified_skus =
   qualified_products
-  |> Stream.map(fn data ->
-    data.sku
-  end)
+  |> Stream.map(&Map.get(&1, :sku))
   |> Enum.to_list()
+```
 
+```elixir
+# find the items and their order ids of the qualified product skus
 interesting_order_ids =
   items
   |> Stream.drop(1)
   |> Stream.map(fn {_ok, [orderId, sku, _qty, _up]} -> %{orderId: orderId, sku: sku} end)
-  |> Stream.filter(fn data ->
-    Enum.member?(skus, data.sku)
-  end)
-  |> Stream.map(fn data ->
-    data.orderId
-  end)
+  |> Stream.filter(fn data -> Enum.member?(qualified_skus, data.sku) end)
+  |> Stream.map(&Map.get(&1, :orderId))
   |> Enum.to_list()
 
+# find all orders for the order ids
 interesting_orders =
   orders
   |> Stream.drop(1)
@@ -238,20 +250,24 @@ interesting_orders =
     %{orderId: orderId, customerId: customerId, ordered: ordered}
   end)
   |> Stream.filter(fn data -> Enum.member?(interesting_order_ids, data.orderId) end)
+  |> Stream.filter(fn data -> String.starts_with?(data.ordered, "2017-") end)
   |> Enum.to_list()
 ```
 
 ```elixir
-# interesting_customers = customers
-# |> Stream.filter(fn data -> Enum.member?(qualified_customers_id, data.customterId) end)
-# |> Enum.to_list
-
-customer_id =
+more_interesting_orders =
   interesting_orders
   |> Stream.filter(fn data -> Enum.member?(qualified_customers_id, data.customerId) end)
-  |> Stream.filter(fn data -> String.starts_with?(data.ordered, "2017-") end)
-  # three items
+  # three items, ordered by date ASC
   |> Enum.to_list()
+
+# |> List.first # first item = oldest one
+# |> then(&Map.get(&1, :customerId))
+```
+
+```elixir
+customer_id =
+  more_interesting_orders
   |> List.first()
   |> then(&Map.get(&1, :customerId))
 ```
@@ -260,6 +276,6 @@ customer_id =
 qualified_customers
 |> Enum.find(fn data -> data.customerId == customer_id end)
 |> Map.get(:phone)
-
-# 516-994-3023 is wrong
 ```
+
+## Section
