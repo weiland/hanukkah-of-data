@@ -305,9 +305,9 @@ Looking for *bicycle fixer's phone number*
 
 * female person
 * bike chain repair kit
-* patries -> pastry
-* years ago: so not 2022 and neither 2021 -> 2017 - 2020?
-* 5am (early bird -> fresh pastries)
+* patries -> pastry -> bagel (or BKY prefix)
+* years ago: so not 2022 and neither 2021 -> 2017 - 2020
+* 5am -> before 5 am but not too far
 
 ```elixir
 # products (bagel and coffee) that have been bought
@@ -316,22 +316,14 @@ qualified_products =
   |> Stream.drop(1)
   |> Stream.map(fn {_ok, [sku, desc, _wc]} -> %{desc: String.downcase(desc), sku: sku} end)
   |> Stream.filter(fn data ->
-    # || String.contains?(data.desc, "cycle") # did not help
-    # || String.contains?(data.desc, "clean")
-    String.contains?(data.desc, "pastry") ||
-      String.contains?(data.desc, "bike") ||
-      String.contains?(data.desc, "chain") ||
-      String.contains?(data.desc, "bagel") ||
-      String.contains?(data.desc, "chain") ||
-      String.contains?(data.desc, "repair") ||
-      String.contains?(data.desc, "croissant") ||
-      String.contains?(data.desc, "cannoli") ||
-      String.contains?(data.desc, "donut")
+    # just works
+    String.contains?(data.desc, "bagel")
+    # String.starts_with?(data.sku, "BKY") # prints too mahy
   end)
 
 skus =
   qualified_products
-  # |> Stream.map(fn data -> data.sku end)
+  |> Stream.map(fn data -> data.sku end)
   |> Enum.to_list()
 ```
 
@@ -355,11 +347,10 @@ interesting_orders =
     %{orderId: orderId, customerId: customerId, ordered: ordered}
   end)
   |> Stream.filter(fn data -> Enum.member?(interesting_order_ids, data.orderId) end)
-  # |> Stream.filter(fn data -> String.starts_with?(data.ordered, "2017-") end)
   |> Stream.filter(fn order ->
     {:ok, date} = NaiveDateTime.from_iso8601(order.ordered)
 
-    date.year != 2022 && date.year != 2021 && date.year != 2020 &&
+    date.year != 2022 &&
       date.hour < 5 && date.hour > 3
   end)
   |> Enum.to_list()
@@ -372,9 +363,75 @@ customers
 |> Stream.drop(1)
 |> Stream.filter(fn {_ok, customer} ->
   Enum.member?(cids, Enum.at(customer, 0))
+  # proably in NY (since most people use Tinder nearby I assume)
 end)
 # |> Stream.map(fn {_ok, list} -> Enum.at(list, 5) end)
 |> Enum.to_list()
+```
 
-# two entries, used the one from 1981
+Playing around: More general approach
+
+```elixir
+# NY customers
+cids =
+  customers
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [customerId, name, _add, state, _birth, phone]} ->
+    %{customerId: customerId, state: state, name: name, phone: phone}
+  end)
+  |> Stream.filter(fn customer ->
+    String.contains?(customer.state, "NY ")
+  end)
+  |> Stream.map(fn customer -> customer.customerId end)
+  |> Enum.to_list()
+```
+
+```elixir
+# orders from a certain time
+interesting_orders =
+  orders
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [orderId, customerId, ordered, _shipped, _items, _total]} ->
+    %{orderId: orderId, customerId: customerId, ordered: ordered}
+  end)
+  |> Stream.filter(fn order ->
+    {:ok, date} = NaiveDateTime.from_iso8601(order.ordered)
+
+    date.year != 2022 && date.year != 2021 && date.year != 2020 &&
+      date.hour == 4 &&
+      Enum.member?(cids, order.customerId)
+  end)
+  |> Enum.to_list()
+```
+
+```elixir
+# products (bakery)
+qualified_products =
+  products
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [sku, desc, _wc]} -> %{desc: String.downcase(desc), sku: sku} end)
+  |> Stream.filter(fn data ->
+    # prints too mahy
+    String.starts_with?(data.sku, "BKY")
+  end)
+
+skus =
+  qualified_products
+  |> Stream.map(fn data -> data.sku end)
+  |> Enum.to_list()
+```
+
+```elixir
+interesting_order_ids =
+  items
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [orderId, sku, _qty, _up]} -> %{orderId: orderId, sku: sku} end)
+  |> Stream.filter(fn data -> Enum.member?(skus, data.sku) end)
+  |> Stream.map(&Map.get(&1, :orderId))
+  |> Enum.to_list()
+```
+
+```elixir
+interesting_orders
+|> Enum.filter(fn order -> Enum.member?(interesting_order_ids, order.orderId) end)
 ```
