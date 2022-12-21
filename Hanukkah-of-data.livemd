@@ -1,4 +1,4 @@
-# Hanukkah of Data 🕎
+# Hanukkah of Data 🕎 -- 5783
 
 ```elixir
 Mix.install([:csv])
@@ -10,6 +10,28 @@ customers =
   |> File.stream!()
   |> CSV.decode()
 
+# there is a comma in citizenstatezip as well
+orders =
+  "./data/noahs-orders.csv"
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> CSV.decode()
+
+# there is a comma in citizenstatezip as well
+items =
+  "./data/noahs-orders_items.csv"
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> CSV.decode()
+
+# there is a comma in citizenstatezip as well
+products =
+  "./data/noahs-products.csv"
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> CSV.decode()
+
+# own CSV parsing attempt
 # |> Stream.map(&String.trim(&1))
 # |> Stream.map(&String.split(&1, ","))
 # |> Stream.map(fn [customerId, name, address, citizen, statezip, birthdate, phone] ->
@@ -24,7 +46,19 @@ customers =
 # end)
 ```
 
-## Day 1
+## Night 1
+
+## Knowledge
+
+* Noah's Market
+* Noah is the granduncle
+* database started 2017 (by cousin Alex, who is too busy)
+* Store is in Manhatten, NY (NYC)
+* I was buying bagels
+* Aunt Sarah
+* *rug* is missing (JD spec 2017)
+
+<!-- livebook:{"break_markdown":true} -->
 
 > Find the private investigator's phone number 👀
 
@@ -77,4 +111,155 @@ end)
 |> Enum.to_list()
 |> List.first()
 |> Map.get(:orig_phone)
+```
+
+## Night 2
+
+JD's phone number
+
+```elixir
+qualified_customers =
+  customers
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [customerId, name, address, state, _birth, phone]} ->
+    %{customerId: customerId, name: name, phone: phone, state: state, address: address}
+  end)
+  |> Stream.filter(fn data ->
+    parts = String.split(data.name, " ")
+
+    if Enum.count(parts) > 2 do
+      false
+    else
+      [first, last] = parts
+      String.starts_with?(first, "J") && String.starts_with?(last, "D")
+      # && String.contains?(data.state, "Manhattan")
+    end
+  end)
+
+qualified_customers_id =
+  qualified_customers
+  |> Stream.map(&Map.get(&1, :customerId))
+  |> Enum.to_list()
+
+qualified_customers
+|> Enum.to_list()
+```
+
+```elixir
+qualified_orders =
+  orders
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [orderId, customerId, ordered, _shipped, _items, _total]} ->
+    %{orderId: orderId, customerId: customerId, ordered: ordered}
+  end)
+  |> Stream.map(fn data ->
+    {:ok, date} = NaiveDateTime.from_iso8601(data.ordered)
+
+    data
+    |> Map.put(:ordered, date)
+  end)
+  |> Stream.filter(fn data ->
+    date = Map.get(data, :ordered)
+    date.year == 2017 && Enum.member?(qualified_customers_id, data.customerId)
+  end)
+```
+
+```elixir
+qualified_order_ids =
+  qualified_orders
+  |> Stream.map(fn data -> data.orderId end)
+  |> Enum.to_list()
+
+qualified_items =
+  items
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [orderId, sku, _qty, _up]} -> %{orderId: orderId, sku: sku} end)
+  |> Stream.filter(fn data ->
+    Enum.member?(qualified_order_ids, data.orderId)
+  end)
+
+qualified_skus =
+  qualified_items
+  |> Stream.map(fn data -> data.sku end)
+  |> Enum.to_list()
+```
+
+```elixir
+products
+|> Stream.drop(1)
+|> Stream.map(fn {_ok, [sku, desc, _wc]} -> %{desc: String.downcase(desc), sku: sku} end)
+|> Stream.filter(fn data ->
+  Enum.member?(qualified_skus, data.sku)
+  # && String.starts_with?(data.sku, "KIT") # prodcut category?
+  # (String.contains?(data.desc, "coffee") ||
+  # String.contains?(data.desc, "bagel"))
+end)
+|> Enum.to_list()
+```
+
+```elixir
+qualified_products =
+  products
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [sku, desc, _wc]} -> %{desc: String.downcase(desc), sku: sku} end)
+  |> Stream.filter(fn data ->
+    String.contains?(data.desc, "coffee") ||
+      String.contains?(data.desc, "bagel")
+
+    # || String.contains?(data.desc, "clean")
+  end)
+
+# outputs 10 items
+# |> Enum.to_list
+
+skus =
+  qualified_products
+  |> Stream.map(fn data ->
+    data.sku
+  end)
+  |> Enum.to_list()
+
+interesting_order_ids =
+  items
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [orderId, sku, _qty, _up]} -> %{orderId: orderId, sku: sku} end)
+  |> Stream.filter(fn data ->
+    Enum.member?(skus, data.sku)
+  end)
+  |> Stream.map(fn data ->
+    data.orderId
+  end)
+  |> Enum.to_list()
+
+interesting_orders =
+  orders
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [orderId, customerId, ordered, _shipped, _items, _total]} ->
+    %{orderId: orderId, customerId: customerId, ordered: ordered}
+  end)
+  |> Stream.filter(fn data -> Enum.member?(interesting_order_ids, data.orderId) end)
+  |> Enum.to_list()
+```
+
+```elixir
+# interesting_customers = customers
+# |> Stream.filter(fn data -> Enum.member?(qualified_customers_id, data.customterId) end)
+# |> Enum.to_list
+
+customer_id =
+  interesting_orders
+  |> Stream.filter(fn data -> Enum.member?(qualified_customers_id, data.customerId) end)
+  |> Stream.filter(fn data -> String.starts_with?(data.ordered, "2017-") end)
+  # three items
+  |> Enum.to_list()
+  |> List.first()
+  |> then(&Map.get(&1, :customerId))
+```
+
+```elixir
+qualified_customers
+|> Enum.find(fn data -> data.customerId == customer_id end)
+|> Map.get(:phone)
+
+# 516-994-3023 is wrong
 ```
