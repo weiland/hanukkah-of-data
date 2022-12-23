@@ -41,6 +41,21 @@ products =
 #     IO.puts("filter -> #{timestamp}")
 #     true
 # end)
+
+# build a full data table
+# min_orders = orders
+# |> Stream.drop(1)
+# |> Stream.map(fn {_ok, order} -> order end)
+
+# full = items
+# |> Stream.drop(1)
+# |> Stream.map(fn {_ok, item} ->
+#   [order] = min_orders
+#     |> Stream.filter(fn order -> Enum.at(order, 0) == Enum.at(item, 0) end)
+#     |> Enum.take(1)
+#   Enum.concat(order, item)
+# end)
+# |> Enum.to_list
 ```
 
 ## Night 1
@@ -310,7 +325,7 @@ Looking for *bicycle fixer's phone number*
 * 5am -> before 5 am but not too far
 
 ```elixir
-# products (bagel and coffee) that have been bought
+# products (bagel) that have been bought
 qualified_products =
   products
   |> Stream.drop(1)
@@ -328,7 +343,7 @@ skus =
 ```
 
 ```elixir
-# find the items and their order ids of the qualified product skus
+# find the items and their order ids of the product skus
 interesting_order_ids =
   items
   |> Stream.drop(1)
@@ -339,7 +354,7 @@ interesting_order_ids =
 ```
 
 ```elixir
-# find all orders for the order ids
+# find all orders for the order ids and date time range
 interesting_orders =
   orders
   |> Stream.drop(1)
@@ -354,4 +369,89 @@ interesting_orders =
       date.hour < 5 && date.hour > 3
   end)
   |> Enum.to_list()
+```
+
+## Night 5
+
+* *woman* in *Queens Village*
+* has many old cats -> requires cat supplies and food
+* sweatshirt (-> clothes)
+* plastic bags?
+
+Let's start by looking for interesting products and their skus:
+
+```elixir
+qualified_product_skus =
+  products
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [sku, desc, _wc]} -> %{"desc" => String.downcase(desc), "sku" => sku} end)
+  |> Stream.filter(fn data ->
+    # just works
+    # String.contains?(data.desc, "shirt") || # did not work
+    # 222 products
+    String.contains?(data["desc"], "cat")
+  end)
+  |> Stream.map(fn %{"sku" => sku} -> sku end)
+  |> Enum.to_list()
+```
+
+Now find the items and the orders for these products:
+
+```elixir
+interesting_order_ids =
+  items
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [orderId, sku, _qty, _up]} -> %{orderId: orderId, sku: sku} end)
+  |> Stream.filter(fn data -> Enum.member?(qualified_product_skus, data.sku) end)
+  |> Stream.map(&Map.get(&1, :orderId))
+  |> Enum.to_list()
+```
+
+Find people that live in *Queens*
+
+```elixir
+queens_customers =
+  customers
+  |> Stream.drop(1)
+  |> Stream.filter(fn {_ok, customer} ->
+    String.contains?(Enum.at(customer, 3), "Queens Village")
+  end)
+  |> Stream.map(fn {_ok, [customerId, name, _add, _state, _birth, phone]} ->
+    %{"customerId" => customerId, "name" => name, "phone" => phone}
+  end)
+  |> Stream.map(fn %{"customerId" => customerId} -> customerId end)
+  |> Enum.to_list()
+```
+
+Limit the orders to people in queens
+
+```elixir
+interesting_orders =
+  orders
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [orderId, customerId, ordered, _shipped, _items, total]} ->
+    %{orderId: orderId, customerId: customerId, ordered: ordered, total: total}
+  end)
+  |> Stream.filter(fn order ->
+    Enum.member?(interesting_order_ids, order.orderId) &&
+      Enum.member?(queens_customers, order.customerId)
+  end)
+  # |> Enum.chunk_by(fn order -> end)
+  |> Enum.to_list()
+```
+
+and group them by their orders
+
+```elixir
+customers_id =
+  interesting_orders
+  |> Enum.map(&Map.get(&1, :customerId))
+  |> Enum.max()
+```
+
+```elixir
+customers
+|> Stream.drop(1)
+|> Stream.filter(fn {_ok, customer} -> Enum.at(customer, 0) == customers_id end)
+|> Enum.to_list()
 ```
