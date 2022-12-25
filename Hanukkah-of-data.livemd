@@ -433,8 +433,9 @@ interesting_orders =
     %{orderId: orderId, customerId: customerId, ordered: ordered, total: total}
   end)
   |> Stream.filter(fn order ->
-    Enum.member?(interesting_order_ids, order.orderId) &&
-      Enum.member?(queens_customers, order.customerId)
+    # Enum.member?(interesting_order_ids, order.orderId) &&
+    # Enum.member?(queens_customers, order.customerId)
+    order.customerId == "7675"
   end)
   # |> Enum.chunk_by(fn order -> end)
   |> Enum.to_list()
@@ -454,4 +455,142 @@ customers
 |> Stream.drop(1)
 |> Stream.filter(fn {_ok, customer} -> Enum.at(customer, 0) == customers_id end)
 |> Enum.to_list()
+```
+
+## Night 6
+
+* cousin (she) moved to new flat with wooden flat
+* has a subway connection -> NY
+* discounts -> buys less frequently
+
+```elixir
+qualified_product_skus =
+  products
+  |> Stream.drop(1)
+  |> Stream.map(fn {_ok, [sku, desc, _wc]} -> %{"desc" => String.downcase(desc), "sku" => sku} end)
+  |> Stream.filter(fn %{"desc" => desc} ->
+    # just works
+    # String.contains?(data.desc, "shirt") || # did not work
+    String.contains?(desc, "cheap")
+  end)
+  # |> Stream.map(fn %{"sku" => sku} -> sku end)
+  |> Enum.to_list()
+```
+
+```elixir
+ny_customers =
+  customers
+  |> Stream.drop(1)
+  |> Stream.filter(fn {_ok, customer} ->
+    String.contains?(Enum.at(customer, 3), "NY ")
+  end)
+```
+
+Find customers (same name) with different addresses (did not work)
+
+```elixir
+# ny_customers
+#   |> Stream.filter(fn {_ok, [_cid, name, _street, _state, birthdate, _phone] } ->
+#     ny_customers
+#      |> Stream.drop(1)
+#      |> Stream.filter(fn {_ok, customer} ->
+#       Enum.at(customer, 1) == name && Enum.at(customer, 4) == birthdate
+#      end)
+#      |> Enum.count
+#      |> then(fn val -> val > 1 end)
+
+#   end)
+#   |> Enum.to_list
+# 4308 is duplicated
+```
+
+Create a map of sku and price
+
+```elixir
+skus_and_price =
+  products
+  |> Stream.drop(1)
+  |> Enum.reduce(%{}, fn {_ok, [sku, _desc, wholesale_cost]}, acc ->
+    acc
+    |> Map.put(sku, wholesale_cost)
+  end)
+```
+
+Find items sold for less:
+
+```elixir
+cheap_items =
+  items
+  |> Stream.drop(1)
+  |> Enum.reduce(%{}, fn {_ok, [orderId, sku, _qty, unitPrice]}, acc ->
+    wholePrice = String.to_float(Map.get(skus_and_price, sku))
+    unitPrice = String.to_float(unitPrice)
+    # discount = wholePrice - unitPrice
+    # if discount > 0 do
+    if wholePrice > unitPrice do
+      Map.put(acc, orderId, round(wholePrice - unitPrice))
+    else
+      acc
+    end
+  end)
+
+# |> Stream.map(fn {_ok, [orderId, _, _, _]} -> String.to_integer(orderId) end)
+# |> Enum.to_list
+```
+
+Get oder for each customer:
+
+```elixir
+cheap_order_ids = cheap_items |> Map.keys()
+
+cheap_orders =
+  orders
+  |> Stream.drop(1)
+  |> Enum.reduce(%{}, fn {_ok, [orderId, customerId, _ordered, _shipped, _items, _total]}, acc ->
+    if Enum.member?(cheap_order_ids, orderId) do
+      # value = if Map.has_key?(acc, customerId), do: Map.get(acc, customerId) + 1, else: 1
+      # {price, _wp} = Map.get(cheap_items, orderId)
+      price = Map.get(cheap_items, orderId)
+      # price = String.to_integer(price)
+      value = if Map.has_key?(acc, customerId), do: Map.get(acc, customerId) + price, else: price
+      Map.put(acc, customerId, value)
+    else
+      acc
+    end
+  end)
+
+# |> Enum.to_list
+```
+
+```elixir
+max_count =
+  cheap_orders
+  |> Map.values()
+  |> Enum.uniq()
+  |> Enum.max()
+```
+
+```elixir
+cheap_customer_id =
+  cheap_orders
+  |> Enum.filter(fn {_key, count} -> count == max_count end)
+  |> then(fn [{customerId, _count}] -> customerId end)
+
+# cheap_orders
+# |> Map.get("8342")
+```
+
+```elixir
+customers
+|> Stream.drop(1)
+|> Stream.filter(fn {_ok, customer} -> Enum.at(customer, 0) == cheap_customer_id end)
+|> Enum.to_list()
+
+# 929-906-5980; Travis Bartlett is wrong (most cheap orders)
+# 2308 (516-608-8966) biggest discount
+
+# customers
+#   |> Stream.drop(1)
+#   |> Stream.filter(fn {_ok, customer} -> Enum.at(customer, 5) == "914-868-0316" end)
+#   |> Enum.to_list
 ```

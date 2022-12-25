@@ -1,0 +1,61 @@
+# HoD -- Night 6
+
+```elixir
+Mix.install([:jason, :explorer])
+
+create_df = fn filename ->
+  filename
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> Enum.map(&Jason.decode!/1)
+  |> then(&Explorer.DataFrame.new/1)
+end
+
+customers = create_df.("./data/noahs-customers.jsonl")
+products = create_df.("./data/noahs-products.jsonl")
+
+# json list
+# orders_json =
+#   "./data/noahs-orders.jsonl"
+#     |> Path.expand(__DIR__)
+#     |> File.stream!()
+#     |> Stream.map(&Jason.decode!/1)
+#     # |> Enum.to_list
+#     # |> then(&Explorer.DataFrame.new/1) # does not work due to items
+
+# joining items and orders (list of items including all order information)
+items =
+  "./data/noahs-orders.jsonl"
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> Stream.map(&Jason.decode!/1)
+  |> Stream.flat_map(fn order ->
+    order["items"]
+    |> Enum.map(&Map.merge(Map.drop(order, ["items"]), &1))
+
+    # %{"qty" => 1, "sku" => "COL0820", "unit_price" => 25.52}
+  end)
+  |> Enum.to_list()
+  |> then(&Explorer.DataFrame.new/1)
+```
+
+## Night 6
+
+Filter for items on sale
+
+```elixir
+require Explorer.DataFrame
+
+night6 =
+  items
+  |> Explorer.DataFrame.select(["customerid", "orderid", "sku", "unit_price"])
+  |> Explorer.DataFrame.join(products)
+  |> Explorer.DataFrame.filter(wholesale_cost > unit_price)
+  |> Explorer.DataFrame.group_by("customerid")
+  |> Explorer.DataFrame.summarise(amount: count(customerid))
+  |> Explorer.DataFrame.ungroup()
+  |> Explorer.DataFrame.filter(amount == max(amount))
+  |> Explorer.DataFrame.join(customers)
+  |> Explorer.DataFrame.pull("phone")
+  |> Explorer.Series.first()
+```
