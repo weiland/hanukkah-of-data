@@ -1,0 +1,181 @@
+# HoD -- Night 7
+
+```elixir
+Mix.install([:jason, :explorer])
+
+create_df = fn filename ->
+  filename
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> Enum.map(&Jason.decode!/1)
+  |> then(&Explorer.DataFrame.new/1)
+end
+
+customers = create_df.("./data/noahs-customers.jsonl")
+products = create_df.("./data/noahs-products.jsonl")
+
+# json list
+# orders_json =
+#   "./data/noahs-orders.jsonl"
+#     |> Path.expand(__DIR__)
+#     |> File.stream!()
+#     |> Stream.map(&Jason.decode!/1)
+#     # |> Enum.to_list
+#     # |> then(&Explorer.DataFrame.new/1) # does not work due to items
+
+orders =
+  "./data/noahs-orders.jsonl"
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> Stream.map(&Jason.decode!/1)
+  |> Stream.map(fn order ->
+    new_items = Enum.count(order["items"])
+    Map.put(order, "items", new_items)
+  end)
+  |> Enum.to_list()
+  |> then(&Explorer.DataFrame.new/1)
+
+# joining items and orders (list of items including all order information)
+items =
+  "./data/noahs-orders.jsonl"
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> Stream.map(&Jason.decode!/1)
+  |> Stream.flat_map(fn order ->
+    order["items"]
+    |> Enum.map(&Map.merge(Map.drop(order, ["items"]), &1))
+
+    # %{"qty" => 1, "sku" => "COL0820", "unit_price" => 25.52}
+  end)
+  |> Enum.to_list()
+  |> then(&Explorer.DataFrame.new/1)
+```
+
+## Night 7
+
+Limit to only colored products only and create a df with extracted color information.
+
+```elixir
+require Explorer.DataFrame
+
+colored_products =
+  products
+  |> Explorer.DataFrame.pull("desc")
+  |> Explorer.Series.to_list()
+  |> Enum.filter(fn desc ->
+    String.contains?(desc, ")")
+  end)
+  |> Enum.map(fn desc ->
+    [d, c] = String.split(desc, " (")
+    %{"desc" => desc, "desc_norm" => d, "color" => String.replace(c, ")", "")}
+  end)
+  |> then(&Explorer.DataFrame.new/1)
+```
+
+Get all colored items from orders
+
+```elixir
+# colored items
+colored_items =
+  items
+  |> Explorer.DataFrame.join(products)
+  |> Explorer.DataFrame.join(colored_products)
+  |> Explorer.DataFrame.join(products)
+  |> Explorer.DataFrame.mutate(is_emily: customerid == 8342)
+  |> then(fn df ->
+    dates =
+      df
+      |> Explorer.DataFrame.pull("ordered")
+      |> Explorer.Series.to_list()
+      |> Enum.map(fn datestr ->
+        {:ok, date} = NaiveDateTime.from_iso8601(datestr)
+        {date, _} = NaiveDateTime.to_gregorian_seconds(date)
+        %{"ordered" => datestr, "date" => date}
+      end)
+      |> Explorer.DataFrame.new()
+
+    Explorer.DataFrame.join(df, dates)
+  end)
+```
+
+All colored products Emily bought:
+
+```elixir
+emilys_colored_items =
+  colored_items
+  |> Explorer.DataFrame.join(customers)
+  # 15 products (from all, 8 from colored)
+  |> Explorer.DataFrame.filter(customerid == 8342)
+  |> Explorer.DataFrame.join(products)
+  |> Explorer.DataFrame.select(["desc_norm", "color", "ordered", "date", "customerid", "orderid"])
+```
+
+Find the next order to emilys that contains the same product in a different color:
+
+```elixir
+next_orderid =
+  emilys_colored_items
+  |> Explorer.DataFrame.pull("date")
+  |> Explorer.Series.to_list()
+  |> Enum.map(fn date ->
+    max_date = date + 1800
+
+    colored_items
+    |> Explorer.DataFrame.filter_with(&Explorer.Series.greater_equal(&1["date"], date))
+    |> Explorer.DataFrame.filter_with(&Explorer.Series.less(&1["date"], max_date))
+    |> then(fn df ->
+      count =
+        df
+        |> Explorer.DataFrame.pull("customerid")
+        |> Explorer.Series.count()
+
+      if count > 0 do
+        new_count =
+          df
+          |> Explorer.DataFrame.distinct(["customerid"])
+          |> Explorer.DataFrame.pull("customerid")
+          |> Explorer.Series.count()
+
+        # filter emily's single shopping
+        if new_count > 1 do
+          df
+          |> Explorer.DataFrame.select(["desc_norm", "color", "is_emily", "orderid"])
+          |> Explorer.DataFrame.head()
+        else
+          false
+        end
+      else
+        false
+      end
+    end)
+  end)
+  |> Enum.filter(fn elem -> elem end)
+  # remove non duplicate products
+  |> Enum.filter(fn elem ->
+    elem
+    # product names without colors
+    |> Explorer.DataFrame.pull("desc_norm")
+    |> Explorer.Series.to_list()
+    |> then(fn [emilys_product | other_products] ->
+      # Enum.count(Enum.uniq(lst)) != Enum.count(lst)
+      Enum.member?(other_products, emilys_product)
+    end)
+  end)
+  |> List.first()
+  |> Explorer.DataFrame.pull("orderid")
+  |> Explorer.Series.to_list()
+  |> Enum.drop(1)
+  |> List.first()
+```
+
+Obtain customer's phone number by querying the orderId:
+
+```elixir
+customers
+|> Explorer.DataFrame.join(orders)
+|> Explorer.DataFrame.filter_with(&Explorer.Series.equal(&1["orderid"], next_orderid))
+|> Explorer.DataFrame.join(customers)
+|> Explorer.DataFrame.pull("phone")
+|> Explorer.Series.to_list()
+|> List.first()
+```
