@@ -1,0 +1,85 @@
+# HoD -- Night 8
+
+```elixir
+Mix.install([:jason, :explorer])
+
+create_df = fn filename ->
+  filename
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> Enum.map(&Jason.decode!/1)
+  |> then(&Explorer.DataFrame.new/1)
+end
+
+customers = create_df.("./data/noahs-customers.jsonl")
+products = create_df.("./data/noahs-products.jsonl")
+
+# json list
+# orders_json =
+#   "./data/noahs-orders.jsonl"
+#     |> Path.expand(__DIR__)
+#     |> File.stream!()
+#     |> Stream.map(&Jason.decode!/1)
+#     # |> Enum.to_list
+#     # |> then(&Explorer.DataFrame.new/1) # does not work due to items
+
+# joining items and orders (list of items including all order information)
+items =
+  "./data/noahs-orders.jsonl"
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> Stream.map(&Jason.decode!/1)
+  |> Stream.flat_map(fn order ->
+    order["items"]
+    |> Enum.map(&Map.merge(Map.drop(order, ["items"]), &1))
+
+    # %{"qty" => 1, "sku" => "COL0820", "unit_price" => 25.52}
+  end)
+  |> Enum.to_list()
+  |> then(&Explorer.DataFrame.new/1)
+```
+
+## Night 8
+
+Looking for the collector's phone number 👀
+
+* Sister -> female
+* Manhatten
+* holidays -> no order at noahs
+
+Filter for items ...
+
+```elixir
+require Explorer.DataFrame
+
+noahs_products =
+  products
+  |> Explorer.DataFrame.pull("desc")
+  |> Explorer.Series.to_list()
+  |> Enum.filter(&String.contains?(String.downcase(&1), "noah"))
+  |> Enum.map(fn desc -> %{"desc" => desc} end)
+  |> Explorer.DataFrame.new()
+```
+
+```elixir
+uid =
+  products
+  |> Explorer.DataFrame.join(noahs_products)
+  |> Explorer.DataFrame.join(items)
+  |> Explorer.DataFrame.join(customers)
+  |> Explorer.DataFrame.group_by("customerid")
+  |> Explorer.DataFrame.summarise(amount: max(customerid))
+  |> Explorer.DataFrame.ungroup()
+  |> Explorer.DataFrame.head(1)
+  |> Explorer.DataFrame.pull("customerid")
+  |> Explorer.Series.to_list()
+  |> List.first()
+```
+
+```elixir
+customers
+|> Explorer.DataFrame.filter_with(&Explorer.Series.equal(&1["customerid"], uid))
+|> Explorer.DataFrame.pull("phone")
+|> Explorer.Series.to_list()
+|> List.first()
+```
